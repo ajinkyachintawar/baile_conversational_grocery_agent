@@ -1,12 +1,17 @@
+import json
 import os
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 
 from backend.agent.state import AgentState
 from backend.agent.tools import ALL_TOOLS
+
+# Max chars of tool output fed back to the LLM (prevents token bloat)
+# Frontend SSE stream receives the FULL output before this truncation runs
+_MAX_TOOL_CONTENT = 800
 
 load_dotenv()
 
@@ -32,9 +37,15 @@ Available stores:
 - Global Foods Smithfield (global_foods) — independent, halal meat available, closes 20:30"""
 
 
-def _make_llm() -> ChatGroq:
+# Primary: llama-3.3-70b-versatile (100k TPD) — best tool use quality
+# Fallback: llama-3.1-8b-instant (500k TPD) — if daily limit hit
+_PRIMARY_MODEL = "llama-3.3-70b-versatile"
+_FALLBACK_MODEL = "llama-3.1-8b-instant"
+
+
+def _make_llm(model: str = _PRIMARY_MODEL) -> ChatGroq:
     return ChatGroq(
-        model="llama-3.3-70b-versatile",
+        model=model,
         api_key=os.environ["GROQ_API_KEY"],
         temperature=0.2,
         max_tokens=1024,
@@ -42,20 +53,55 @@ def _make_llm() -> ChatGroq:
 
 
 _llm: ChatGroq | None = None
+_llm_fallback: ChatGroq | None = None
 
 
-def _get_llm() -> ChatGroq:
-    global _llm
+def _get_llm(fallback: bool = False) -> ChatGroq:
+    global _llm, _llm_fallback
+    if fallback:
+        if _llm_fallback is None:
+            _llm_fallback = _make_llm(_FALLBACK_MODEL)
+        return _llm_fallback
     if _llm is None:
-        _llm = _make_llm()
+        _llm = _make_llm(_PRIMARY_MODEL)
     return _llm
 
 
+def _truncate_tool_messages(messages: list) -> list:
+    """Truncate long ToolMessage content to stay within token budget."""
+    result = []
+    for msg in messages:
+        if isinstance(msg, ToolMessage) and isinstance(msg.content, str) and len(msg.content) > _MAX_TOOL_CONTENT:
+            try:
+                # Try to produce a short JSON summary
+                data = json.loads(msg.content)
+                if isinstance(data, dict):
+                    # Keep keys but truncate nested values
+                    summary = {k: f"<{type(v).__name__} len={len(str(v))}>" if len(str(v)) > 100 else v
+                               for k, v in list(data.items())[:8]}
+                    short = json.dumps(summary)
+                else:
+                    short = msg.content[:_MAX_TOOL_CONTENT] + "…"
+            except Exception:
+                short = msg.content[:_MAX_TOOL_CONTENT] + "…"
+            msg = ToolMessage(content=short, tool_call_id=msg.tool_call_id, name=msg.name)
+        result.append(msg)
+    return result
+
+
 def call_model(state: AgentState) -> dict:
-    # Inject session_id into system prompt so LLM is aware of it (for context only)
     system = SYSTEM_PROMPT + f"\n\nCurrent session_id: {state['session_id']}"
-    messages = [SystemMessage(content=system)] + state["messages"]
-    response = _get_llm().invoke(messages)
+    messages = _truncate_tool_messages(state["messages"])
+    full_messages = [SystemMessage(content=system)] + messages
+    try:
+        response = _get_llm(fallback=False).invoke(full_messages)
+    except Exception as e:
+        err = str(e)
+        if "rate_limit_exceeded" in err or "429" in err:
+            # Daily token limit hit on primary — fall back to smaller model
+            response = _get_llm(fallback=True).invoke(full_messages)
+        else:
+            raise
     return {"messages": [response]}
 
 
