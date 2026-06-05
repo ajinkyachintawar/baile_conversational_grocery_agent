@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { ChatPanel } from './components/ChatPanel'
 import { CartPanel } from './components/CartPanel'
 import { CompareTable } from './components/CompareTable'
-import { createSession } from './hooks/useSSE'
+import { createSession, fetchCart } from './hooks/useSSE'
 import type { Cart, CompareData } from './types'
 
 const SESSION_KEY = 'baile_session_id'
@@ -24,6 +24,9 @@ export default function App() {
         localStorage.setItem(SESSION_KEY, sid)
       }
       setSessionId(sid)
+      // Restore cart state from backend (handles page refresh + SSE timeouts)
+      const existingCart = await fetchCart(sid)
+      if (existingCart.items.length > 0) setCart(existingCart)
     }
     init()
   }, [])

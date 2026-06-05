@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { Message, Cart, CompareData } from '../types'
 import { MessageBubble } from './MessageBubble'
-import { useSSE } from '../hooks/useSSE'
+import { useSSE, fetchCart } from '../hooks/useSSE'
 
 interface Props {
   sessionId: string
@@ -103,14 +103,20 @@ export function ChatPanel({ sessionId, onCartUpdate, onCompareData }: Props) {
     )
   }, [onCartUpdate])
 
-  const onError = useCallback((msg: string) => {
+  const onError = useCallback(async (msg: string) => {
     setIsLoading(false)
     activeMessageId.current = null
-    setMessages((prev) => [
-      ...prev,
-      { id: newId(), role: 'assistant', content: `Sorry, something went wrong: ${msg}`, toolCalls: [], timestamp: Date.now() },
-    ])
-  }, [])
+    setMessages((prev) => prev.map((m) => (m.streaming ? { ...m, streaming: false } : m)))
+    // On timeout/error, re-fetch cart from API — agent may have updated it before timing out
+    const recovered = await fetchCart(sessionId)
+    if (recovered.items.length > 0) onCartUpdate(recovered)
+    if (!msg.includes('timed out')) {
+      setMessages((prev) => [
+        ...prev,
+        { id: newId(), role: 'assistant', content: `Sorry, something went wrong: ${msg}`, toolCalls: [], timestamp: Date.now() },
+      ])
+    }
+  }, [sessionId, onCartUpdate])
 
   const { send } = useSSE({ onToolStart, onToolEnd, onText, onDone, onError })
 

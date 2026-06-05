@@ -84,6 +84,15 @@ export async function createSession(): Promise<string> {
   return data.session_id as string
 }
 
+export async function fetchCart(sessionId: string): Promise<Cart> {
+  try {
+    const res = await fetch(`${API}/cart/${sessionId}`)
+    return res.json()
+  } catch {
+    return { items: [], total_eur: 0 }
+  }
+}
+
 export async function placeOrder(sessionId: string): Promise<{ order_id: string; total_eur: number }> {
   const res = await fetch(`${API}/orders/${sessionId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
   return res.json()

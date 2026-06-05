@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from backend.agent.graph import agent
 from backend.db.supabase_client import get_client
 
-SSE_TIMEOUT = 120  # seconds before stream forcefully closes
+SSE_TIMEOUT = 300  # seconds before stream forcefully closes
 
 
 @asynccontextmanager
