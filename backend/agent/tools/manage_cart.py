@@ -41,6 +41,7 @@ def manage_cart(
     Always return the full current cart after any mutation.
     """
     try:
+        quantity = int(quantity)  # LLM may pass as string
         db = get_client()
 
         # Ensure session exists

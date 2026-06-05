@@ -15,6 +15,7 @@ def search_products(
     Use when user asks for specific items or describes what they want to cook.
     """
     try:
+        limit = int(limit)  # LLM may pass as string
         embedding = embed(query)
         db = get_client()
         stores_to_search = store_ids or ["tesco_phibsboro", "patel_grocery", "global_foods"]

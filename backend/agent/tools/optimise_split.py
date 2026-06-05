@@ -22,6 +22,7 @@ def optimise_split(
     basket format: [{"name": str, "quantity": int}]
     """
     try:
+        max_stores = int(max_stores)  # LLM may pass as string
         db = get_client()
         item_prices: dict[str, dict] = {}
 

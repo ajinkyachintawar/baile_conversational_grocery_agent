@@ -9,6 +9,7 @@ def get_order_history(session_id: str, limit: int = 3) -> dict:
     Use when user says 'same as last time' or references a previous order.
     """
     try:
+        limit = int(limit)  # LLM may pass as string
         db = get_client()
         orders = (
             db.table("orders")
