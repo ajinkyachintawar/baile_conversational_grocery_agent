@@ -1,5 +1,6 @@
-from typing import Literal
+from typing import Annotated, Literal
 from langchain_core.tools import tool
+from langgraph.prebuilt import InjectedState
 from backend.db.supabase_client import get_client
 
 
@@ -28,7 +29,7 @@ def _get_cart(session_id: str) -> dict:
 @tool
 def manage_cart(
     action: Literal["add", "remove", "update", "clear", "rebuild", "get"],
-    session_id: str,
+    state: Annotated[dict, InjectedState()],
     store_id: str | None = None,
     product_id: str | None = None,
     product_name: str | None = None,
@@ -39,9 +40,11 @@ def manage_cart(
     """
     Manage the user's cart. Actions: add, remove, update qty, clear, rebuild from order, get current state.
     Always return the full current cart after any mutation.
+    Do NOT pass session_id — it is injected automatically.
     """
     try:
-        quantity = int(quantity)  # LLM may pass as string
+        session_id: str = state["session_id"]
+        quantity = int(quantity)
         db = get_client()
 
         # Ensure session exists

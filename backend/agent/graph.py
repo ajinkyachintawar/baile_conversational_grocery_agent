@@ -52,7 +52,9 @@ def _get_llm() -> ChatGroq:
 
 
 def call_model(state: AgentState) -> dict:
-    messages = [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
+    # Inject session_id into system prompt so LLM is aware of it (for context only)
+    system = SYSTEM_PROMPT + f"\n\nCurrent session_id: {state['session_id']}"
+    messages = [SystemMessage(content=system)] + state["messages"]
     response = _get_llm().invoke(messages)
     return {"messages": [response]}
 

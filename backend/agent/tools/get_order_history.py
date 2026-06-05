@@ -1,15 +1,22 @@
+from typing import Annotated
 from langchain_core.tools import tool
+from langgraph.prebuilt import InjectedState
 from backend.db.supabase_client import get_client
 
 
 @tool
-def get_order_history(session_id: str, limit: int = 3) -> dict:
+def get_order_history(
+    state: Annotated[dict, InjectedState()],
+    limit: int = 3,
+) -> dict:
     """
     Retrieve past orders for this session.
     Use when user says 'same as last time' or references a previous order.
+    Do NOT pass session_id — it is injected automatically.
     """
     try:
-        limit = int(limit)  # LLM may pass as string
+        session_id: str = state["session_id"]
+        limit = int(limit)
         db = get_client()
         orders = (
             db.table("orders")
@@ -24,7 +31,6 @@ def get_order_history(session_id: str, limit: int = 3) -> dict:
         if not orders:
             return {"orders": [], "message": "No previous orders found for this session."}
 
-        # Enrich with item count and total
         result = []
         for order in orders:
             items = order.get("items", [])
