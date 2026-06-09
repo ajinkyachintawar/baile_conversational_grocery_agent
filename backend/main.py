@@ -28,8 +28,8 @@ app = FastAPI(title="Baile API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
-    allow_credentials=True,
+    allow_origins=["*"],  # Chrome extension origin + web app
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
