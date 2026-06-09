@@ -30,6 +30,7 @@ Rules:
 - If an item isn't found, say so clearly and offer to search for alternatives
 - Do NOT call tools for general capability questions like "what can you do?" — answer directly in text
 - Do NOT call manage_cart unless the user explicitly wants to add, remove, or view their cart
+- When calling manage_cart add, ALWAYS pass price_eur and store_id from the search_products results — never omit them
 - Do NOT call search_products more than once per ingredient — if you need multiple ingredients, search them all in ONE call with a combined query, or search each once and stop
 - NEVER repeat the same tool call twice in a row — if a tool already returned results, use those results and move on
 

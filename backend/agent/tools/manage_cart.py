@@ -58,6 +58,26 @@ def manage_cart(
         elif action == "add":
             if not product_name:
                 return {"error": "product_name is required for add action"}
+
+            # Auto-fill missing price/store from products table
+            if (price_eur is None or store_id is None) and (product_id or product_name):
+                try:
+                    q = db.table("products").select("id, name, price_eur, store_id")
+                    if product_id:
+                        q = q.eq("id", product_id)
+                    else:
+                        q = q.ilike("name", f"%{product_name}%")
+                    if store_id:
+                        q = q.eq("store_id", store_id)
+                    rows = q.limit(1).execute().data
+                    if rows:
+                        product_id = product_id or rows[0]["id"]
+                        price_eur = price_eur or rows[0]["price_eur"]
+                        store_id = store_id or rows[0]["store_id"]
+                        product_name = rows[0]["name"]  # use canonical name
+                except Exception:
+                    pass  # proceed with whatever we have
+
             db.table("cart_items").insert({
                 "session_id": session_id,
                 "store_id": store_id,
