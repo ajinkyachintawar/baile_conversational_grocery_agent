@@ -135,6 +135,7 @@ async def chat_stream(request: ChatRequest):
                         "tool_calls_log": [],
                     },
                     version="v2",
+                    config={"recursion_limit": 10},
                 ):
                     event_name = event.get("event", "")
 
