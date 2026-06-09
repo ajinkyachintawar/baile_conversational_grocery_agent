@@ -2,9 +2,7 @@ services:
   - type: web
     name: baile-api
     env: docker
-    dockerfilePath: backend/Dockerfile
-    dockerContext: .
-envVars:
+    envVars:
       - key: GROQ_API_KEY
         sync: false
       - key: NIM_API_KEY_EMBED
