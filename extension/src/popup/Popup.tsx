@@ -4,6 +4,7 @@ import ChatView from "./ChatView";
 import CartView from "./CartView";
 
 type Tab = "chat" | "cart";
+type ServerStatus = "checking" | "waking" | "ready";
 
 export default function Popup() {
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -11,10 +12,33 @@ export default function Popup() {
   const [cart, setCart] = useState<Cart | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("chat");
   const [injectionStatus, setInjectionStatus] = useState<InjectionStatus>({ phase: "idle" });
+  const [serverStatus, setServerStatus] = useState<ServerStatus>("checking");
   const activeMessageIdRef = useRef<string | null>(null);
+
+  // ── Wake-up ping ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    const API = "https://baile-conversational-grocery-agent.onrender.com";
+    const start = Date.now();
+    fetch(`${API}/health`)
+      .then(() => {
+        if (Date.now() - start > 3000) setServerStatus("waking");
+        else setServerStatus("ready");
+      })
+      .catch(() => setServerStatus("waking"));
+
+    // Poll until ready
+    const interval = setInterval(() => {
+      fetch(`${API}/health`)
+        .then(() => { setServerStatus("ready"); clearInterval(interval); })
+        .catch(() => {});
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // ── Init session ──────────────────────────────────────────────────────────
   useEffect(() => {
+    if (serverStatus !== "ready") return;
     chrome.runtime.sendMessage({ type: "GET_SESSION" }, (res) => {
       if (res?.session_id) {
         setSessionId(res.session_id);
@@ -24,7 +48,7 @@ export default function Popup() {
         });
       }
     });
-  }, []);
+  }, [serverStatus]);
 
   // ── SSE listener ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -216,6 +240,16 @@ export default function Popup() {
           </TabBtn>
         </div>
       </div>
+
+      {/* Wake-up banner */}
+      {serverStatus !== "ready" && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs">
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+          {serverStatus === "checking"
+            ? "Connecting to Baile…"
+            : "Waking up server — first load takes ~30s on free tier…"}
+        </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-hidden">
