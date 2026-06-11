@@ -13,7 +13,7 @@ _STORE_NAMES = {
 @tool
 def optimise_split(
     basket: list[dict],
-    max_stores: int = 2,
+    max_stores: int | str = 2,  # str allowed: Llama sometimes emits "2"
 ) -> dict:
     """
     Find the minimum-cost way to split a basket across N stores.

@@ -7,7 +7,7 @@ from backend.db.supabase_client import get_client
 @tool
 def get_order_history(
     state: Annotated[dict, InjectedState()],
-    limit: int = 3,
+    limit: int | str = 3,  # str allowed: Llama sometimes emits "3"
 ) -> dict:
     """
     Retrieve past orders for this session.
