@@ -112,9 +112,13 @@ export default function Popup() {
       setMessages((prev) => {
         const id = activeMessageIdRef.current;
         if (!id) return prev;
-        return prev.map((m) =>
-          m.id === id ? { ...m, content: m.content + (event.content ?? "") } : m
-        );
+        return prev.map((m) => {
+          if (m.id !== id) return m;
+          // Llama sometimes leaks raw tool-call syntax into text — hide it
+          const raw = m.content + (event.content ?? "");
+          const cleaned = raw.replace(/<function=[\s\S]*?(<\/function>|$)/g, "");
+          return { ...m, content: cleaned };
+        });
       });
     }
 

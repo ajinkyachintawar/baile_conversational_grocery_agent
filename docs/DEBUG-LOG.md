@@ -117,4 +117,37 @@ Results recorded in section 5 below after each deploy.
 
 ## 5. Deploy + test record
 
-(filled in as runs complete)
+### Deploy 1 — commits `f29e3b2` + `2533ae7` (2026-06-11)
+
+Detection probe: polled `/chat/stream` with a cart request every 45s; the old
+code fails it instantly with the `HumanMessage` error. New code went live on
+probe 5 (~4 min build), immediately streaming a clean `manage_cart` tool_start
+with the state blob stripped:
+
+```
+data: {"type": "tool_start", "tool": "manage_cart", "input": {"action": "get"}}
+```
+
+### E2E run — `scripts/e2e_test.sh` against production: **8/8 PASS**
+
+| Stage | Result | Evidence |
+|---|---|---|
+| 1. Health | PASS | 200 in <1s |
+| 2. Create session | PASS | session id returned |
+| 3. Search chat | PASS | `search_products` called with `limit: "10"` (string!) and **accepted** — Bug B schema fix verified live. Streamed text, ended with `done`. ~9s total. |
+| 4. Cart chat | PASS | Two `manage_cart add` calls with `price_eur: "1.50"` / `"2.00"` as strings — coerced fine. Ended with `done`. ~10s total. |
+| 5. Cart integrity | PASS | 2 items, **both with prices**: milk x2 @ €1.50 (tesco_phibsboro), basmati rice x1 @ €2.00 (global_foods). Total €5.00. |
+| 6. Place order | PASS | order `cbbd0a0c…` placed, €5.00, cart cleared. |
+
+**Latency after fixes:** search ~9s, cart-add ~10s end-to-end (Groq inference
++ NIM embeddings + Supabase round-trips). Down from "crashed at 2s, perceived
+as a 7-minute hang."
+
+### Known issues (non-blocking)
+
+- The Llama model occasionally leaks raw `<function=…>` tool-call syntax into
+  visible text (observed in stage 3). Mitigated client-side: `Popup.tsx`
+  strips `<function=…</function>` spans from rendered content. Root cause is
+  a Groq/Llama quirk; would disappear with a stronger model.
+- The model sometimes searches the same query 2–3 times before answering
+  (capped by `recursion_limit: 10`, so bounded at ~10–15s worst case).
