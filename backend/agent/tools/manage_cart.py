@@ -4,6 +4,47 @@ from langgraph.prebuilt import InjectedState
 from backend.db.supabase_client import get_client
 
 
+def _add_one(db, session_id: str, store_id, product_id, product_name, price_eur, quantity) -> None:
+    """Insert a single cart item, auto-filling price/store from products table."""
+    if price_eur is not None:
+        try:
+            price_eur = float(price_eur)
+        except (TypeError, ValueError):
+            price_eur = None
+    try:
+        quantity = int(quantity)
+    except (TypeError, ValueError):
+        quantity = 1
+
+    if (price_eur is None or store_id is None) and (product_id or product_name):
+        try:
+            q = db.table("products").select("id, name, price_eur, store_id")
+            if product_id:
+                q = q.eq("id", product_id)
+            else:
+                q = q.ilike("name", f"%{product_name}%")
+            if store_id:
+                q = q.eq("store_id", store_id)
+            rows = q.limit(1).execute().data
+            if rows:
+                product_id = product_id or rows[0]["id"]
+                price_eur = price_eur or rows[0]["price_eur"]
+                store_id = store_id or rows[0]["store_id"]
+                product_name = rows[0]["name"]  # use canonical name
+        except Exception:
+            pass  # proceed with whatever we have
+
+    db.table("cart_items").insert({
+        "session_id": session_id,
+        "store_id": store_id,
+        "product_id": product_id,
+        "product_name": product_name,
+        "price_eur": price_eur,
+        "quantity": quantity,
+        "unit": None,
+    }).execute()
+
+
 def _get_cart(session_id: str) -> dict:
     db = get_client()
     rows = (
@@ -36,9 +77,12 @@ def manage_cart(
     price_eur: float | str | None = None,  # str allowed: Llama sometimes emits "2.50"
     quantity: int | str = 1,
     order_id: str | None = None,
+    items: list[dict] | None = None,
 ) -> dict:
     """
     Manage the user's cart. Actions: add, remove, update qty, clear, rebuild from order, get current state.
+    To add MULTIPLE products, use action="add" with items=[{"product_name", "store_id", "price_eur", "quantity"}, ...]
+    in ONE call — never make one call per product.
     Always return the full current cart after any mutation.
     Do NOT pass session_id — it is injected automatically.
     """
@@ -61,37 +105,20 @@ def manage_cart(
             return _get_cart(session_id)
 
         elif action == "add":
-            if not product_name:
-                return {"error": "product_name is required for add action"}
-
-            # Auto-fill missing price/store from products table
-            if (price_eur is None or store_id is None) and (product_id or product_name):
-                try:
-                    q = db.table("products").select("id, name, price_eur, store_id")
-                    if product_id:
-                        q = q.eq("id", product_id)
-                    else:
-                        q = q.ilike("name", f"%{product_name}%")
-                    if store_id:
-                        q = q.eq("store_id", store_id)
-                    rows = q.limit(1).execute().data
-                    if rows:
-                        product_id = product_id or rows[0]["id"]
-                        price_eur = price_eur or rows[0]["price_eur"]
-                        store_id = store_id or rows[0]["store_id"]
-                        product_name = rows[0]["name"]  # use canonical name
-                except Exception:
-                    pass  # proceed with whatever we have
-
-            db.table("cart_items").insert({
-                "session_id": session_id,
-                "store_id": store_id,
-                "product_id": product_id,
-                "product_name": product_name,
-                "price_eur": price_eur,
-                "quantity": quantity,
-                "unit": None,
-            }).execute()
+            if items:
+                for it in items:
+                    if not it.get("product_name"):
+                        continue
+                    _add_one(
+                        db, session_id,
+                        it.get("store_id"), it.get("product_id"),
+                        it["product_name"], it.get("price_eur"),
+                        it.get("quantity", 1),
+                    )
+            elif product_name:
+                _add_one(db, session_id, store_id, product_id, product_name, price_eur, quantity)
+            else:
+                return {"error": "product_name (or items list) is required for add action"}
 
         elif action == "remove":
             if not product_name and not product_id:

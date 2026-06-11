@@ -148,7 +148,10 @@ async def chat_stream(request: ChatRequest):
                         "tool_calls_log": [],
                     },
                     version="v2",
-                    config={"recursion_limit": 10},
+                    # 25 graph steps ≈ 12 agent/tool rounds — enough for a full
+                    # recipe flow (search + compare + optimise + bulk add) while
+                    # still bounding runaway loops
+                    config={"recursion_limit": 25},
                 ):
                     event_name = event.get("event", "")
 
@@ -209,7 +212,29 @@ async def chat_stream(request: ChatRequest):
         except asyncio.TimeoutError:
             yield f"data: {json.dumps({'type': 'error', 'message': 'Response timed out'})}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            if "Recursion limit" in str(e):
+                # Agent did too many steps but partial work (cart adds) is in
+                # the DB — surface it as a soft completion, not a failure
+                cart = {}
+                try:
+                    db = get_client()
+                    cart_items = (
+                        db.table("cart_items").select("*")
+                        .eq("session_id", request.session_id).execute().data
+                    )
+                    total = sum(
+                        float(i["price_eur"]) * int(i["quantity"])
+                        for i in cart_items
+                        if i.get("price_eur") and i.get("quantity")
+                    )
+                    cart = {"items": cart_items, "total_eur": round(total, 2)}
+                except Exception:
+                    pass
+                msg = "I did quite a lot of steps there and had to stop — here's your cart so far. Ask me to continue if anything is missing."
+                yield f"data: {json.dumps({'type': 'text', 'content': msg})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'cart': cart})}\n\n"
+            else:
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
     return StreamingResponse(
         event_generator(),
