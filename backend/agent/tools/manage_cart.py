@@ -1,16 +1,28 @@
+import re
 from typing import Annotated, Literal
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 from backend.db.supabase_client import get_client
 
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+
+
+def _to_price(v) -> float | None:
+    """Parse prices however the LLM mangles them: 4.99, "4.99", "€4.99", "4,99"."""
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    m = re.search(r"\d+(?:[.,]\d+)?", str(v))
+    return float(m.group().replace(",", ".")) if m else None
+
 
 def _add_one(db, session_id: str, store_id, product_id, product_name, price_eur, quantity) -> None:
     """Insert a single cart item, auto-filling price/store from products table."""
-    if price_eur is not None:
-        try:
-            price_eur = float(price_eur)
-        except (TypeError, ValueError):
-            price_eur = None
+    # LLM often puts the product NAME in product_id ("olive oil") — swap it back
+    if not product_name and product_id and not _UUID_RE.match(str(product_id)):
+        product_name, product_id = str(product_id), None
+    price_eur = _to_price(price_eur)
     try:
         quantity = int(quantity)
     except (TypeError, ValueError):
@@ -88,12 +100,11 @@ def manage_cart(
     """
     try:
         session_id: str = state["session_id"]
-        quantity = int(quantity)
-        if price_eur is not None:
-            try:
-                price_eur = float(price_eur)
-            except (TypeError, ValueError):
-                price_eur = None  # let auto-fill below recover it
+        try:
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            quantity = 1
+        price_eur = _to_price(price_eur)
         db = get_client()
 
         # Ensure session exists
@@ -105,17 +116,17 @@ def manage_cart(
             return _get_cart(session_id)
 
         elif action == "add":
-            if items:
+            if items and isinstance(items, list):
                 for it in items:
-                    if not it.get("product_name"):
+                    if not isinstance(it, dict) or not (it.get("product_name") or it.get("product_id")):
                         continue
                     _add_one(
                         db, session_id,
                         it.get("store_id"), it.get("product_id"),
-                        it["product_name"], it.get("price_eur"),
+                        it.get("product_name"), it.get("price_eur"),
                         it.get("quantity", 1),
                     )
-            elif product_name:
+            elif product_name or product_id:
                 _add_one(db, session_id, store_id, product_id, product_name, price_eur, quantity)
             else:
                 return {"error": "product_name (or items list) is required for add action"}

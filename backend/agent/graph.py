@@ -34,6 +34,7 @@ Rules:
 - Do NOT call search_products more than once per ingredient — if you need multiple ingredients, search them all in ONE call with a combined query, or search each once and stop
 - NEVER repeat the same tool call twice in a row — if a tool already returned results, use those results and move on
 - When adding MULTIPLE products to the cart, use ONE manage_cart call with the items list: manage_cart(action="add", items=[{"product_name": ..., "store_id": ..., "price_eur": ..., "quantity": ...}, ...]) — NEVER one call per product
+- In manage_cart, ALWAYS pass the product's name in product_name. Only pass product_id if you have the exact id from search_products results. price_eur must be a plain number like 4.99 — no currency symbol
 
 Available stores:
 - Tesco Phibsborough (tesco_phibsboro) — chain, closes 22:00

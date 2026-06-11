@@ -246,6 +246,9 @@ async def chat_stream(request: ChatRequest):
     )
 
 
+APP_VERSION = "2.1.0"  # bump on every deploy-worthy change
+
+
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "baile"}
+    return {"status": "ok", "service": "baile", "version": APP_VERSION}
