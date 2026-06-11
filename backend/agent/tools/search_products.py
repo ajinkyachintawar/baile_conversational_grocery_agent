@@ -7,7 +7,7 @@ from backend.agent.tools._nim_client import embed
 def search_products(
     query: str,
     store_ids: list[str] | None = None,
-    limit: int = 8,
+    limit: int | str = 8,  # str allowed: Llama sometimes emits "5"
 ) -> dict:
     """
     Search for products using semantic similarity across stores.

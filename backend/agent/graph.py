@@ -92,20 +92,47 @@ def _truncate_tool_messages(messages: list) -> list:
     return result
 
 
+def _is_rate_limit(err: str) -> bool:
+    return "rate_limit_exceeded" in err or "429" in err
+
+
+def _is_bad_tool_call(err: str) -> bool:
+    # Groq 400 when the model emits a tool call that doesn't match the schema
+    # (e.g. limit="5" as string). Stochastic — a retry usually succeeds.
+    return "tool_use_failed" in err or "tool call validation failed" in err
+
+
 def call_model(state: AgentState) -> dict:
     system = SYSTEM_PROMPT + f"\n\nCurrent session_id: {state['session_id']}"
     messages = _truncate_tool_messages(state["messages"])
     full_messages = [SystemMessage(content=system)] + messages
-    try:
-        response = _get_llm(fallback=False).invoke(full_messages)
-    except Exception as e:
-        err = str(e)
-        if "rate_limit_exceeded" in err or "429" in err:
-            # Daily token limit hit on primary — fall back to smaller model
-            response = _get_llm(fallback=True).invoke(full_messages)
-        else:
-            raise
-    return {"messages": [response]}
+
+    # Attempt order: primary → primary retry → fallback model.
+    # Rate-limit errors jump straight to the fallback; bad tool calls retry.
+    last_err: Exception | None = None
+    use_fallback = False
+    for attempt in range(3):
+        if attempt == 2:
+            use_fallback = True
+        try:
+            response = _get_llm(fallback=use_fallback).invoke(full_messages)
+            return {"messages": [response]}
+        except Exception as e:
+            last_err = e
+            err = str(e)
+            if _is_rate_limit(err):
+                if use_fallback:
+                    break  # fallback also rate-limited — give up
+                use_fallback = True
+            elif not _is_bad_tool_call(err):
+                raise
+
+    # All attempts failed — return a graceful message instead of crashing the stream
+    from langchain_core.messages import AIMessage
+    return {"messages": [AIMessage(content=(
+        "Sorry — I hit a temporary issue talking to the language model "
+        f"({type(last_err).__name__}). Please try again in a moment."
+    ))]}
 
 
 def should_continue(state: AgentState) -> str:

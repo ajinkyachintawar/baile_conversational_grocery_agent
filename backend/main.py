@@ -14,7 +14,20 @@ from pydantic import BaseModel
 from backend.agent.graph import agent
 from backend.db.supabase_client import get_client
 
-SSE_TIMEOUT = 300  # seconds before stream forcefully closes
+SSE_TIMEOUT = 120  # seconds before stream forcefully closes
+
+
+def _safe_payload(obj) -> str:
+    """json.dumps that can never raise — LangChain objects become strings."""
+    return json.dumps(obj, default=str)
+
+
+def _clean_tool_input(raw) -> dict | None:
+    """Drop the InjectedState blob (raw conversation messages) from tool input
+    before it goes over SSE — it's huge and not JSON-serializable."""
+    if not isinstance(raw, dict):
+        return raw
+    return {k: v for k, v in raw.items() if k not in ("state", "messages")}
 
 
 @asynccontextmanager
@@ -140,10 +153,10 @@ async def chat_stream(request: ChatRequest):
                     event_name = event.get("event", "")
 
                     if event_name == "on_tool_start":
-                        payload = json.dumps({
+                        payload = _safe_payload({
                             "type": "tool_start",
                             "tool": event.get("name"),
-                            "input": event["data"].get("input"),
+                            "input": _clean_tool_input(event["data"].get("input")),
                         })
                         yield f"data: {payload}\n\n"
 
@@ -154,7 +167,7 @@ async def chat_stream(request: ChatRequest):
                             output = raw_output.content
                         else:
                             output = raw_output
-                        payload = json.dumps({
+                        payload = _safe_payload({
                             "type": "tool_end",
                             "tool": event.get("name"),
                             "output": output,

@@ -14,6 +14,35 @@ export default function Popup() {
   const [injectionStatus, setInjectionStatus] = useState<InjectionStatus>({ phase: "idle" });
   const [serverStatus, setServerStatus] = useState<ServerStatus>("checking");
   const activeMessageIdRef = useRef<string | null>(null);
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // No SSE event for 60s while streaming → surface a timeout instead of silence
+  const armWatchdog = useCallback(() => {
+    if (watchdogRef.current) clearTimeout(watchdogRef.current);
+    watchdogRef.current = setTimeout(() => {
+      const id = activeMessageIdRef.current;
+      if (!id) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === id
+            ? {
+                ...m,
+                streaming: false,
+                content: m.content || "⚠️ No response after 60 seconds — the server may be busy. Please try again.",
+              }
+            : m
+        )
+      );
+      activeMessageIdRef.current = null;
+    }, 60_000);
+  }, []);
+
+  const disarmWatchdog = useCallback(() => {
+    if (watchdogRef.current) {
+      clearTimeout(watchdogRef.current);
+      watchdogRef.current = null;
+    }
+  }, []);
 
   // ── Wake-up ping ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -75,6 +104,10 @@ export default function Popup() {
   }, []);
 
   const handleSSEEvent = useCallback((event: { type: string; content?: string; tool?: string; input?: unknown; output?: string; cart?: Cart; message?: string }) => {
+    // Any event = stream is alive; reset the timeout clock
+    if (event.type === "done" || event.type === "error") disarmWatchdog();
+    else armWatchdog();
+
     if (event.type === "text") {
       setMessages((prev) => {
         const id = activeMessageIdRef.current;
@@ -138,7 +171,15 @@ export default function Popup() {
     if (event.type === "error") {
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === activeMessageIdRef.current ? { ...m, streaming: false } : m
+          m.id === activeMessageIdRef.current
+            ? {
+                ...m,
+                streaming: false,
+                content:
+                  m.content ||
+                  `⚠️ Something went wrong: ${event.message ?? "unknown error"}. Please try again.`,
+              }
+            : m
         )
       );
       activeMessageIdRef.current = null;
@@ -172,6 +213,7 @@ export default function Popup() {
 
       activeMessageIdRef.current = assistantMsgId;
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      armWatchdog(); // covers the case where no SSE event ever arrives
 
       chrome.runtime.sendMessage({
         type: "CHAT_STREAM",
@@ -179,7 +221,7 @@ export default function Popup() {
         message: text.trim(),
       });
     },
-    [sessionId]
+    [sessionId, armWatchdog]
   );
 
   // ── Place order ───────────────────────────────────────────────────────────

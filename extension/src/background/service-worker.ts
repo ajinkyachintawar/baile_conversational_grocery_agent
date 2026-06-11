@@ -56,6 +56,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // ── SSE chat stream ────────────────────────────────────────────────────────
 
 async function handleChatStream(sessionId: string, message: string) {
+  // MV3 service workers can be killed after ~30s of perceived inactivity,
+  // which would silently drop the stream. Calling an extension API on an
+  // interval keeps the worker alive while we read.
+  const keepAlive = setInterval(() => chrome.runtime.getPlatformInfo(), 20_000);
   try {
     const res = await fetch(`${API}/chat/stream`, {
       method: "POST",
@@ -63,7 +67,20 @@ async function handleChatStream(sessionId: string, message: string) {
       body: JSON.stringify({ message, session_id: sessionId }),
     });
 
-    if (!res.body) return;
+    if (!res.ok) {
+      chrome.runtime.sendMessage({
+        type: "SSE_EVENT",
+        event: { type: "error", message: `Server error (HTTP ${res.status})` },
+      }).catch(() => {});
+      return;
+    }
+    if (!res.body) {
+      chrome.runtime.sendMessage({
+        type: "SSE_EVENT",
+        event: { type: "error", message: "Server returned an empty response" },
+      }).catch(() => {});
+      return;
+    }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -93,6 +110,8 @@ async function handleChatStream(sessionId: string, message: string) {
       type: "SSE_EVENT",
       event: { type: "error", message: String(e) },
     }).catch(() => {});
+  } finally {
+    clearInterval(keepAlive);
   }
 }
 

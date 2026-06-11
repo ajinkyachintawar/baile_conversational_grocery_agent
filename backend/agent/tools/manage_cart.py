@@ -33,8 +33,8 @@ def manage_cart(
     store_id: str | None = None,
     product_id: str | None = None,
     product_name: str | None = None,
-    price_eur: float | None = None,
-    quantity: int = 1,
+    price_eur: float | str | None = None,  # str allowed: Llama sometimes emits "2.50"
+    quantity: int | str = 1,
     order_id: str | None = None,
 ) -> dict:
     """
@@ -45,6 +45,11 @@ def manage_cart(
     try:
         session_id: str = state["session_id"]
         quantity = int(quantity)
+        if price_eur is not None:
+            try:
+                price_eur = float(price_eur)
+            except (TypeError, ValueError):
+                price_eur = None  # let auto-fill below recover it
         db = get_client()
 
         # Ensure session exists
